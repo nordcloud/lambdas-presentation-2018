@@ -1,0 +1,111 @@
+# Welcome to Serverless!
+#
+# This file is the main config file for your service.
+# It's very minimal at this point and uses default values.
+# You can always add more config options for more control.
+# We've included some commented out config examples here.
+# Just uncomment any of them to get that config option.
+#
+# For full config options, check the docs:
+#    docs.serverless.com
+#
+# Happy Coding!
+
+service: monolithish
+
+provider:
+  name: aws
+  runtime: nodejs6.10
+  region: eu-west-1
+  stage: monolith
+  environment:     
+    SERVERLESS_STAGE: ${opt:stage, self:provider.stage}
+    SERVERLESS_REGION: ${opt:region, self:provider.region}
+    SOURCE_BUCKET: nordcloud-awscd18-demo-${self:provider.environment.SERVERLESS_STAGE}-${self:service}
+    PROCESSED_BUCKET: nordcloud-awscd18-demo-processed-${self:provider.environment.SERVERLESS_STAGE}-${self:service}
+    REJECTED_BUCKET: nordcloud-awscd18-demo-rejected-${self:provider.environment.SERVERLESS_STAGE}-${self:service}
+    EXPENSES_TABLE: expenses-table-${self:provider.environment.SERVERLESS_STAGE}
+    EXPENSES_NOTIFICATION_TOPIC: expense-notifications-${self:provider.environment.SERVERLESS_STAGE}
+    EXPENSES_NOTIFICATION_TOPIC_ARN: 
+      Fn::Join:
+        - ':'
+        - - arn
+          - aws
+          - sns
+          - Ref: AWS::Region
+          - Ref: AWS::AccountId
+          - ${self:provider.environment.EXPENSES_NOTIFICATION_TOPIC}
+    NOTIFICATION_NUMBER: +358417596321
+
+  iamRoleStatements:
+    - Effect: Allow
+      Action:
+      - S3:*
+      Resource: arn:aws:s3:::${self:provider.environment.SOURCE_BUCKET}/*
+    - Effect: Allow
+      Action:
+      - S3:*
+      Resource: arn:aws:s3:::${self:provider.environment.PROCESSED_BUCKET}/*
+    - Effect: Allow
+      Action:
+      - S3:*
+      Resource: arn:aws:s3:::${self:provider.environment.REJECTED_BUCKET}/*
+    - Effect: Allow
+      Action: 
+        - dynamodb:PutItem
+      Resource: arn:aws:dynamodb:eu-west-1:*:*
+    - Effect: Allow
+      Action:
+      - SNS:Publish
+      Resource: ${self:provider.environment.EXPENSES_NOTIFICATION_TOPIC_ARN}
+
+package:
+  exclude:
+    - test/**
+
+
+functions:
+  expenses:
+    handler: monolith.handler
+    events:
+      - schedule: rate(1 minute)
+
+resources:
+ Resources:
+    newDataBucket:
+      Type: AWS::S3::Bucket
+      Properties:
+        AccessControl: AuthenticatedRead
+        BucketName: ${self:provider.environment.SOURCE_BUCKET}
+      DeletionPolicy: Delete
+    processedDataBucket:
+      Type: AWS::S3::Bucket
+      Properties:
+        AccessControl: AuthenticatedRead
+        BucketName: ${self:provider.environment.PROCESSED_BUCKET}
+    rejectedDataBucket:
+      Type: AWS::S3::Bucket
+      Properties:
+        AccessControl: AuthenticatedRead
+        BucketName: ${self:provider.environment.REJECTED_BUCKET}
+    expensesTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: ${self:provider.environment.EXPENSES_TABLE}
+        AttributeDefinitions:
+          - AttributeName: expense_id
+            AttributeType: S
+        KeySchema:
+          - AttributeName: expense_id
+            KeyType: HASH
+        ProvisionedThroughput:
+          ReadCapacityUnits: 1
+          WriteCapacityUnits: 1
+    expenseNotificationTopic:
+      Type: AWS::SNS::Topic
+      Properties: 
+        TopicName: ${self:provider.environment.EXPENSES_NOTIFICATION_TOPIC}
+        Subscription: 
+          - Endpoint: ${self:provider.environment.NOTIFICATION_NUMBER}
+            Protocol: sms
+
